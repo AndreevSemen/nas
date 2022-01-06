@@ -152,13 +152,18 @@ func (fs *FileServer) middlewareAuthz(next http.Handler) http.Handler {
 func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 	// split path like "/<virtualStorageName>/<virtualPath>" into ["<virtualStorageName>", "<virtualPath>"]
 	virtualStorageSplit := strings.SplitN(strings.TrimLeft(r.URL.Path, "/"), "/", 2)
-	if len(virtualStorageSplit) != 2 {
+
+	var virtualStorage, filePath string
+	if len(virtualStorageSplit) == 2 {
+		virtualStorage = virtualStorageSplit[0]
+		filePath = virtualStorageSplit[1]
+	} else if len(virtualStorageSplit) == 1 {
+		virtualStorage = virtualStorageSplit[0]
+		filePath = "/"
+	} else {
 		responseWithError(w, ErrBadVirtualPath.Error(), http.StatusBadRequest)
 		return
 	}
-
-	virtualStorage := virtualStorageSplit[0]
-	filePath := virtualStorageSplit[1]
 
 	s, ok := fs.stores[virtualStorage]
 	if !ok {
