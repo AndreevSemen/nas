@@ -235,4 +235,5 @@ func responseWithError(w http.ResponseWriter, err interface{}, code int) {
 	}
 
 	w.Write(data)
+	w.WriteHeader(code)
 }
