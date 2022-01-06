@@ -29,7 +29,9 @@ func main() {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
 	if err != nil {
 		logrus.Fatalf("listen port %d: %s", cfg.Port, err)
+	} else {
+		logrus.Infof("listen port %d", cfg.Port)
 	}
 
-	fs.Start(lis)
+	fs.Start(cfg, lis)
 }

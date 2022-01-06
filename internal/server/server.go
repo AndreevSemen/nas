@@ -42,7 +42,7 @@ func NewSFileServer(cfg config.Config) (*FileServer, error) {
 	return fs, nil
 }
 
-func (fs *FileServer) Start(lis net.Listener) {
+func (fs *FileServer) Start(cfg config.Config, lis net.Listener) {
 	mux := http.NewServeMux()
 	mux.Handle("/signon", http.HandlerFunc(fs.handleSignOn))
 	mux.Handle("/signin", http.HandlerFunc(fs.handleSignIn))
@@ -51,7 +51,7 @@ func (fs *FileServer) Start(lis net.Listener) {
 	fs.server.Handler = commonMiddleware(mux)
 
 	logrus.Info("starting file server...")
-	if err := fs.server.Serve(lis); err == http.ErrServerClosed {
+	if err := fs.server.ServeTLS(lis, cfg.CertPath, cfg.KeyPath); err == http.ErrServerClosed {
 		logrus.Info("file server successfully stopped.")
 	} else {
 		logrus.Errorf("file server stopped: %s", err)
@@ -76,7 +76,7 @@ func (fs *FileServer) handleSignOn(w http.ResponseWriter, r *http.Request) {
 	err := fs.auth.SignOn(creds.Login, creds.Password)
 	switch err {
 	case nil:
-		w.Write([]byte(`{"result": "success"}`))
+		responseWithSuccess(w)
 
 	case auth.ErrBadLogin:
 		responseWithError(w, err.Error(), http.StatusBadRequest)
@@ -105,7 +105,7 @@ func (fs *FileServer) handleSignIn(w http.ResponseWriter, r *http.Request) {
 	switch err {
 	case nil:
 		w.Header().Add("Authorization", fmt.Sprintf("Bearer %s", token))
-		w.Write([]byte(`{"result": "success"}`))
+		responseWithSuccess(w)
 
 	case auth.ErrBadCreds:
 		responseWithError(w, err.Error(), http.StatusUnauthorized)
@@ -149,7 +149,7 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 		case nil:
 			defer rc.Close()
 
-			buf := [512]byte{}
+			buf := make([]byte, 512)
 			if _, err := io.CopyBuffer(w, rc, buf[:]); err != nil {
 				responseWithError(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -172,9 +172,38 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodPut:
-		//fs.storage.PutFile(path)
+		err := fs.storage.PutFile(path, r.Body)
+		switch err {
+		case nil:
+			responseWithSuccess(w)
+
+		case storage.ErrFileExists:
+			responseWithError(w, err.Error(), http.StatusConflict)
+
+		case storage.ErrPermissionDenied:
+			responseWithError(w, err.Error(), http.StatusForbidden)
+
+		default:
+			logrus.WithField("logging-entity", "fs/put").Error(err.Error())
+			responseWithError(w, "internal server error", http.StatusInternalServerError)
+		}
+
 	case http.MethodDelete:
-		//fs.storage.Delete(path)
+		err := fs.storage.Delete(path)
+		switch err {
+		case nil:
+			responseWithSuccess(w)
+
+		case storage.ErrFileNotExists:
+			responseWithError(w, err.Error(), http.StatusNotFound)
+
+		case storage.ErrPermissionDenied:
+			responseWithError(w, err.Error(), http.StatusForbidden)
+
+		default:
+			logrus.WithField("logging-entity", "fs/delete").Error(err.Error())
+			responseWithError(w, "internal server error", http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -183,6 +212,10 @@ func commonMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func responseWithSuccess(w http.ResponseWriter) {
+	w.Write([]byte(`{"result": "success"}`))
 }
 
 func responseWithError(w http.ResponseWriter, err interface{}, code int) {

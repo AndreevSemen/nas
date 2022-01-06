@@ -60,10 +60,18 @@ func (s *Storage) PutFile(path string, rc io.ReadCloser) error {
 
 	path = filepath.Join(s.sharedDir, path)
 
-	f, err := os.Create(path)
-	if os.IsExist(err) {
+	_, err := os.Stat(path)
+	if err == nil {
 		return ErrFileExists
 	} else if os.IsPermission(err) {
+		return ErrPermissionDenied
+	} else if err != nil && !os.IsNotExist(err) {
+		err = errors.Wrap(err, fmt.Sprintf("get stat of file '%s'", path))
+		return err
+	}
+
+	f, err := os.Create(path)
+	if os.IsPermission(err) {
 		return ErrPermissionDenied
 	} else if err != nil {
 		err = errors.Wrap(err, fmt.Sprintf("create file '%s'", path))

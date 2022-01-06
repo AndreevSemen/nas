@@ -12,6 +12,8 @@ type Config struct {
 	Port       int           `yaml:"port"`
 	Expiration time.Duration `yaml:"token_expiration"`
 	SecretEnv  string        `yaml:"secret_env"`
+	CertPath   string        `yaml:"cert_path"`
+	KeyPath    string        `yaml:"key_path"`
 }
 
 func Parse(path string) (Config, error) {
