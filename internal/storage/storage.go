@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -13,16 +14,19 @@ var (
 	ErrFileNotExists    = errors.New("file not found")
 	ErrFileExists       = errors.New("file already exists")
 	ErrFileIsADirectory = errors.New("file is a directory")
+	ErrCannotListFile   = errors.New("cannot list file")
 	ErrPermissionDenied = errors.New("permission denied")
 )
 
 type Storage struct {
-	sharedDir string
+	sharedDir  string
+	virtualDir string
 }
 
-func NewStorage(dir string) *Storage {
+func NewStorage(realPath, virtualPath string) *Storage {
 	return &Storage{
-		sharedDir: dir,
+		sharedDir:  realPath,
+		virtualDir: virtualPath,
 	}
 }
 
@@ -109,4 +113,40 @@ func (s *Storage) Delete(path string) error {
 	}
 
 	return nil
+}
+
+type ListItem struct {
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
+}
+
+func (s *Storage) ListDirectory(path string) ([]ListItem, error) {
+	realPath := filepath.Join(s.sharedDir, path)
+
+	info, err := os.Stat(realPath)
+	if os.IsNotExist(err) {
+		return nil, ErrFileNotExists
+	} else if os.IsPermission(err) {
+		return nil, ErrPermissionDenied
+	} else if err != nil {
+		err = errors.Wrap(err, fmt.Sprintf("get stat of file '%s'", realPath))
+		return nil, err
+	} else if !info.IsDir() {
+		return nil, ErrCannotListFile
+	}
+
+	infos, err := ioutil.ReadDir(realPath)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]ListItem, 0, len(infos))
+	for _, info := range infos {
+		list = append(list, ListItem{
+			Path:  filepath.Join("/", s.virtualDir, path, info.Name()),
+			IsDir: info.IsDir(),
+		})
+	}
+
+	return list, nil
 }

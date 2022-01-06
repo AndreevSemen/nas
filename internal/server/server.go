@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gorilla/schema"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -22,6 +23,7 @@ var (
 	ErrBadVirtualPath         = errors.New("bad virtual path")
 	ErrVirtualStorageNotFound = errors.New("virtual storage not found")
 	ErrBadMethod              = errors.New("bad HTTP method")
+	ErrBadQueryParams         = errors.New("bad query params")
 )
 
 type FileServer struct {
@@ -43,7 +45,7 @@ func NewSFileServer(cfg config.Config) (*FileServer, error) {
 	}
 
 	for virtualRoot, realRoot := range cfg.VirtualStorages {
-		fs.stores[virtualRoot] = storage.NewStorage(realRoot)
+		fs.stores[virtualRoot] = storage.NewStorage(realRoot, virtualRoot)
 	}
 
 	return fs, nil
@@ -166,31 +168,63 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		rc, err := s.Get(filePath)
-		switch err {
-		case nil:
-			defer rc.Close()
+		type params struct {
+			List bool `schema:"list"`
+		}
 
-			buf := make([]byte, 512)
-			if _, err := io.CopyBuffer(w, rc, buf[:]); err != nil {
+		var p params
+		if err := schema.NewDecoder().Decode(&p, r.URL.Query()); err != nil {
+			responseWithError(w, ErrBadQueryParams.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if p.List {
+			list, err := s.ListDirectory(filePath)
+			switch err {
+			case nil:
+				responseWithBody(w, list)
+
+			case storage.ErrFileNotExists:
+				responseWithError(w, err.Error(), http.StatusNotFound)
+
+			case storage.ErrPermissionDenied:
+				responseWithError(w, err.Error(), http.StatusForbidden)
+
+			case storage.ErrCannotListFile:
+				responseWithError(w, err.Error(), http.StatusBadRequest)
+
+			default:
+				logrus.WithField("logging-entity", "fs/list").Error(err.Error())
 				responseWithError(w, "internal server error", http.StatusInternalServerError)
-				return
 			}
 
-			w.Header().Set("Content-Type", "application/octet-stream")
+		} else {
+			rc, err := s.Get(filePath)
+			switch err {
+			case nil:
+				defer rc.Close()
 
-		case storage.ErrFileNotExists:
-			responseWithError(w, err.Error(), http.StatusNotFound)
+				buf := make([]byte, 512)
+				if _, err := io.CopyBuffer(w, rc, buf[:]); err != nil {
+					responseWithError(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
 
-		case storage.ErrFileIsADirectory:
-			responseWithError(w, err.Error(), http.StatusBadRequest)
+				w.Header().Set("Content-Type", "application/octet-stream")
 
-		case storage.ErrPermissionDenied:
-			responseWithError(w, err.Error(), http.StatusForbidden)
+			case storage.ErrFileNotExists:
+				responseWithError(w, err.Error(), http.StatusNotFound)
 
-		default:
-			logrus.WithField("logging-entity", "fs/get").Error(err.Error())
-			responseWithError(w, "internal server error", http.StatusInternalServerError)
+			case storage.ErrFileIsADirectory:
+				responseWithError(w, err.Error(), http.StatusBadRequest)
+
+			case storage.ErrPermissionDenied:
+				responseWithError(w, err.Error(), http.StatusForbidden)
+
+			default:
+				logrus.WithField("logging-entity", "fs/get").Error(err.Error())
+				responseWithError(w, "internal server error", http.StatusInternalServerError)
+			}
 		}
 
 	case http.MethodPut:
@@ -239,6 +273,19 @@ func commonMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func responseWithBody(w http.ResponseWriter, body interface{}) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		logrus.Errorf("can't marshal '%#v': %s", err, data)
+		fmt.Fprintln(w, `{"error":"500 Internal server error"}`)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
 func responseWithSuccess(w http.ResponseWriter) {
 	w.Write([]byte(`{"result": "success"}`))
 }
@@ -259,6 +306,7 @@ func responseWithError(w http.ResponseWriter, err interface{}, code int) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(data)
 }
