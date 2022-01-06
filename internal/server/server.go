@@ -234,6 +234,6 @@ func responseWithError(w http.ResponseWriter, err interface{}, code int) {
 		return
 	}
 
-	w.Write(data)
 	w.WriteHeader(code)
+	w.Write(data)
 }
