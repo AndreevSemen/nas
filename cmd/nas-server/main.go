@@ -26,11 +26,11 @@ func main() {
 		logrus.Fatalf("create file server: %s", err)
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Server.Port))
 	if err != nil {
-		logrus.Fatalf("listen port %d: %s", cfg.Port, err)
+		logrus.Fatalf("listen port %d: %s", cfg.Server.Port, err)
 	} else {
-		logrus.Infof("listen port %d", cfg.Port)
+		logrus.Infof("listen port %d", cfg.Server.Port)
 	}
 
 	fs.Start(cfg, lis)

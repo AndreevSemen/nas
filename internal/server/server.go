@@ -18,25 +18,32 @@ import (
 )
 
 var (
-	ErrNoSecretEnv = errors.New("env with secret not exists")
+	ErrNoSecretEnv            = errors.New("env with secret not exists")
+	ErrBadVirtualPath         = errors.New("bad virtual path")
+	ErrVirtualStorageNotFound = errors.New("virtual storage not found")
+	ErrBadMethod              = errors.New("bad HTTP method")
 )
 
 type FileServer struct {
-	server  *http.Server
-	auth    *auth.AuthManager
-	storage *storage.Storage
+	server *http.Server
+	auth   *auth.AuthManager
+	stores map[string]*storage.Storage
 }
 
 func NewSFileServer(cfg config.Config) (*FileServer, error) {
-	secret, exists := os.LookupEnv(cfg.SecretEnv)
+	secret, exists := os.LookupEnv(cfg.Server.SecretEnv)
 	if !exists {
 		return nil, ErrNoSecretEnv
 	}
 
 	fs := &FileServer{
-		server:  &http.Server{},
-		auth:    auth.NewAuthManager(cfg, secret),
-		storage: storage.NewStorage("/home/"),
+		server: &http.Server{},
+		auth:   auth.NewAuthManager(cfg, secret),
+		stores: make(map[string]*storage.Storage, len(cfg.VirtualStorages)),
+	}
+
+	for virtualRoot, realRoot := range cfg.VirtualStorages {
+		fs.stores[virtualRoot] = storage.NewStorage(realRoot)
 	}
 
 	return fs, nil
@@ -51,7 +58,7 @@ func (fs *FileServer) Start(cfg config.Config, lis net.Listener) {
 	fs.server.Handler = commonMiddleware(mux)
 
 	logrus.Info("starting file server...")
-	if err := fs.server.ServeTLS(lis, cfg.CertPath, cfg.KeyPath); err == http.ErrServerClosed {
+	if err := fs.server.ServeTLS(lis, cfg.Server.CertPath, cfg.Server.KeyPath); err == http.ErrServerClosed {
 		logrus.Info("file server successfully stopped.")
 	} else {
 		logrus.Errorf("file server stopped: %s", err)
@@ -141,10 +148,25 @@ func (fs *FileServer) middlewareAuthz(next http.Handler) http.Handler {
 }
 
 func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
+	// split path like "/<virtualStorageName>/<virtualPath>" into ["<virtualStorageName>", "<virtualPath>"]
+	virtualStorageSplit := strings.SplitN(strings.TrimLeft(r.URL.Path, "/"), "/", 2)
+	if len(virtualStorageSplit) != 2 {
+		responseWithError(w, ErrBadVirtualPath.Error(), http.StatusBadRequest)
+		return
+	}
+
+	virtualStorage := virtualStorageSplit[0]
+	filePath := virtualStorageSplit[1]
+
+	s, ok := fs.stores[virtualStorage]
+	if !ok {
+		responseWithError(w, ErrVirtualStorageNotFound.Error(), http.StatusNotFound)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		rc, err := fs.storage.Get(path)
+		rc, err := s.Get(filePath)
 		switch err {
 		case nil:
 			defer rc.Close()
@@ -172,7 +194,7 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodPut:
-		err := fs.storage.PutFile(path, r.Body)
+		err := s.PutFile(filePath, r.Body)
 		switch err {
 		case nil:
 			responseWithSuccess(w)
@@ -189,7 +211,7 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodDelete:
-		err := fs.storage.Delete(path)
+		err := s.Delete(filePath)
 		switch err {
 		case nil:
 			responseWithSuccess(w)
@@ -204,6 +226,9 @@ func (fs *FileServer) handleFilesystem(w http.ResponseWriter, r *http.Request) {
 			logrus.WithField("logging-entity", "fs/delete").Error(err.Error())
 			responseWithError(w, "internal server error", http.StatusInternalServerError)
 		}
+
+	default:
+		responseWithError(w, ErrBadMethod, http.StatusMethodNotAllowed)
 	}
 }
 

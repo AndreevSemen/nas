@@ -60,7 +60,7 @@ func (m *AuthManager) SignIn(login, password string) (token string, err error) {
 	}
 
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
-		ExpiresAt: jwt.At(time.Now().Add(m.cfg.Expiration)),
+		ExpiresAt: jwt.At(time.Now().Add(m.cfg.Server.Expiration)),
 		IssuedAt:  jwt.At(time.Now()),
 	})
 
