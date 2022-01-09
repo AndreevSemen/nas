@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gorilla/schema"
@@ -33,14 +32,9 @@ type FileServer struct {
 }
 
 func NewSFileServer(cfg config.Config) (*FileServer, error) {
-	secret, exists := os.LookupEnv(cfg.Server.SecretEnv)
-	if !exists {
-		return nil, ErrNoSecretEnv
-	}
-
 	fs := &FileServer{
 		server: &http.Server{},
-		auth:   auth.NewAuthManager(cfg, secret),
+		auth:   auth.NewAuthManager(cfg, cfg.Server.Secret),
 		stores: make(map[string]*storage.Storage, len(cfg.VirtualStorages)),
 	}
 

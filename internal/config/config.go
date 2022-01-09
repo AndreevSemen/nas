@@ -22,7 +22,7 @@ type Config struct {
 	Server struct {
 		Port       int           `yaml:"port"`
 		Expiration time.Duration `yaml:"jwtTokenExpiration"`
-		SecretEnv  string        `yaml:"jwtSecretEnv"`
+		Secret     string        `yaml:"jwtSecret"`
 		CertPath   string        `yaml:"sslCertPath"`
 		KeyPath    string        `yaml:"sslKeyPath"`
 	} `yaml:"fileserver"`
