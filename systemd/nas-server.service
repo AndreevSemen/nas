@@ -1,0 +1,15 @@
+[Unit]
+  Description=NAS-server service
+ 
+[Service]
+  ExecStart=/usr/bin/nas-server -config /etc/nas-server/config.yaml
+  Type=simple
+  KillMode=process
+ 
+  SyslogIdentifier=nas-server
+  SyslogFacility=daemon
+ 
+  Restart=always
+ 
+[Install]
+  WantedBy=multi-user.target
