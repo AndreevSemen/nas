@@ -26,6 +26,9 @@ type Config struct {
 		CertPath   string        `yaml:"sslCertPath"`
 		KeyPath    string        `yaml:"sslKeyPath"`
 	} `yaml:"fileserver"`
+	Database struct {
+		SQLiteDB string `yaml:"sqliteDB"`
+	}
 	VirtualStorages map[string]string `yaml:"virtualStorages"`
 }
 

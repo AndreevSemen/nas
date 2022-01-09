@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/AndreevSemen/nas/internal/config"
+	"github.com/AndreevSemen/nas/internal/db"
 )
 
 var (
@@ -23,17 +24,15 @@ var (
 )
 
 type AuthManager struct {
-	creds  map[string]string // login -> password
-	tokens map[string]struct{}
 	cfg    config.Config
+	db     *db.SQLiteDB
 	secret string
 }
 
-func NewAuthManager(cfg config.Config, secret string) *AuthManager {
+func NewAuthManager(cfg config.Config, secret string, db *db.SQLiteDB) *AuthManager {
 	return &AuthManager{
-		creds:  make(map[string]string),
-		tokens: make(map[string]struct{}),
 		cfg:    cfg,
+		db:     db,
 		secret: secret,
 	}
 }
@@ -45,17 +44,23 @@ func (m *AuthManager) SignUp(login, password string) error {
 		return ErrBadPassword
 	}
 
-	if _, exists := m.creds[login]; exists {
+	if exists, err := m.db.IsLoginExists(login); err != nil {
+		return err
+	} else if exists {
 		return ErrLoginExists
 	}
-	m.creds[login] = password
+	if err := m.db.SetPassword(login, password); err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (m *AuthManager) SignIn(login, password string) (token string, err error) {
-	realPassword := m.creds[login]
-	if realPassword != password {
+	equals, err := m.db.ComparePassword(login, password)
+	if err != nil {
+		return "", err
+	} else if !equals {
 		return "", ErrBadCreds
 	}
 

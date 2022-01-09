@@ -14,6 +14,7 @@ import (
 
 	"github.com/AndreevSemen/nas/internal/auth"
 	"github.com/AndreevSemen/nas/internal/config"
+	"github.com/AndreevSemen/nas/internal/db"
 	"github.com/AndreevSemen/nas/internal/storage"
 )
 
@@ -32,9 +33,14 @@ type FileServer struct {
 }
 
 func NewSFileServer(cfg config.Config) (*FileServer, error) {
+	db, err := db.NewSQLiteDB(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	fs := &FileServer{
 		server: &http.Server{},
-		auth:   auth.NewAuthManager(cfg, cfg.Server.Secret),
+		auth:   auth.NewAuthManager(cfg, cfg.Server.Secret, db),
 		stores: make(map[string]*storage.Storage, len(cfg.VirtualStorages)),
 	}
 
