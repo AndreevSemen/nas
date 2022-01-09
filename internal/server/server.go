@@ -47,8 +47,8 @@ func NewSFileServer(cfg config.Config) (*FileServer, error) {
 
 func (fs *FileServer) Start(cfg config.Config, lis net.Listener) {
 	mux := http.NewServeMux()
-	mux.Handle("/signon", http.HandlerFunc(fs.handleSignOn))
-	mux.Handle("/signin", http.HandlerFunc(fs.handleSignIn))
+	mux.Handle("/sign_up", http.HandlerFunc(fs.handleSignUp))
+	mux.Handle("/sign_in", http.HandlerFunc(fs.handleSignIn))
 	mux.Handle("/", fs.middlewareAuthz(http.HandlerFunc(fs.handleFilesystem)))
 
 	fs.server.Handler = commonMiddleware(mux)
@@ -66,7 +66,7 @@ type Credentials struct {
 	Password string `json:"password"`
 }
 
-func (fs *FileServer) handleSignOn(w http.ResponseWriter, r *http.Request) {
+func (fs *FileServer) handleSignUp(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	d := json.NewDecoder(r.Body)
@@ -76,7 +76,7 @@ func (fs *FileServer) handleSignOn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := fs.auth.SignOn(creds.Login, creds.Password)
+	err := fs.auth.SignUp(creds.Login, creds.Password)
 	switch err {
 	case nil:
 		responseWithSuccess(w)
@@ -91,7 +91,7 @@ func (fs *FileServer) handleSignOn(w http.ResponseWriter, r *http.Request) {
 		responseWithError(w, err.Error(), http.StatusConflict)
 
 	default:
-		logrus.WithField("logging-entity", "auth/signon").Error(err.Error())
+		logrus.WithField("logging-entity", "auth/sign_up").Error(err.Error())
 		responseWithError(w, "internal server error", http.StatusInternalServerError)
 	}
 }
@@ -114,7 +114,7 @@ func (fs *FileServer) handleSignIn(w http.ResponseWriter, r *http.Request) {
 		responseWithError(w, err.Error(), http.StatusUnauthorized)
 
 	default:
-		logrus.WithField("logging-entity", "auth/signin").Error(err.Error())
+		logrus.WithField("logging-entity", "auth/sign_in").Error(err.Error())
 		responseWithError(w, "internal server error", http.StatusInternalServerError)
 	}
 }

@@ -38,7 +38,7 @@ func NewAuthManager(cfg config.Config, secret string) *AuthManager {
 	}
 }
 
-func (m *AuthManager) SignOn(login, password string) error {
+func (m *AuthManager) SignUp(login, password string) error {
 	if !loginRegexp.MatchString(login) {
 		return ErrBadLogin
 	} else if !passwordRegexp.MatchString(password) {
