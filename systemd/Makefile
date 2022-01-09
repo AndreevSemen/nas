@@ -7,3 +7,4 @@ setup-service:
 	cp nas-server.service /lib/systemd/system/
 	cp ../workplace/config.yaml /etc/nas-server/
 	systemctl daemon-reload
+	systemctl restart nas-server.service
