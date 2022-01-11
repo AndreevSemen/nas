@@ -64,3 +64,27 @@ func Parse(path string) (Config, error) {
 
 	return cfg, nil
 }
+
+type ClientConfig struct {
+	ServerAddr string `yaml:"serverAddr"`
+	CertPath   string `yaml:"sslCertPath"`
+
+	Login    string `yaml:"login"`
+	Password string `yaml:"password"`
+}
+
+func ParseClientConfig(path string) (ClientConfig, error) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		err = errors.Wrap(err, "read client config file")
+		return ClientConfig{}, err
+	}
+
+	var cfg ClientConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		err = errors.Wrap(err, "parse client config file")
+		return ClientConfig{}, err
+	}
+
+	return cfg, nil
+}

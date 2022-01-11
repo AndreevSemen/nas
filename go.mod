@@ -7,6 +7,7 @@ require (
 	github.com/gorilla/schema v1.2.0
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
+	github.com/monnand/dhkx v0.0.0-20180522003156-9e5b033f1ac4
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.4.0 // indirect

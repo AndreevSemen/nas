@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AndreevSemen/nas/internal/structures"
 	"github.com/pkg/errors"
 )
 
@@ -81,10 +82,35 @@ func (s *Storage) PutFile(path string, rc io.ReadCloser) error {
 		err = errors.Wrap(err, fmt.Sprintf("create file '%s'", path))
 		return err
 	}
+	defer f.Close()
 
 	buf := [512]byte{}
 	if _, err = io.CopyBuffer(f, rc, buf[:]); err != nil {
 		err = errors.Wrap(err, "copy data to file")
+		return err
+	}
+
+	return nil
+}
+
+func (s *Storage) Mkdir(path string) error {
+	path = filepath.Join(s.sharedDir, path)
+
+	_, err := os.Stat(path)
+	if err == nil {
+		return ErrFileExists
+	} else if os.IsPermission(err) {
+		return ErrPermissionDenied
+	} else if err != nil && !os.IsNotExist(err) {
+		err = errors.Wrap(err, fmt.Sprintf("get stat of file '%s'", path))
+		return err
+	}
+
+	err = os.Mkdir(path, 0777)
+	if os.IsPermission(err) {
+		return ErrPermissionDenied
+	} else if err != nil {
+		err = errors.Wrap(err, fmt.Sprintf("create file '%s'", path))
 		return err
 	}
 
@@ -115,12 +141,7 @@ func (s *Storage) Delete(path string) error {
 	return nil
 }
 
-type ListItem struct {
-	Path  string `json:"path"`
-	IsDir bool   `json:"is_dir"`
-}
-
-func (s *Storage) ListDirectory(path string) ([]ListItem, error) {
+func (s *Storage) ListDirectory(path string) ([]structures.ListItem, error) {
 	realPath := filepath.Join(s.sharedDir, path)
 
 	info, err := os.Stat(realPath)
@@ -140,9 +161,9 @@ func (s *Storage) ListDirectory(path string) ([]ListItem, error) {
 		return nil, err
 	}
 
-	list := make([]ListItem, 0, len(infos))
+	list := make([]structures.ListItem, 0, len(infos))
 	for _, info := range infos {
-		list = append(list, ListItem{
+		list = append(list, structures.ListItem{
 			Path:  filepath.Join("/", s.virtualDir, path, info.Name()),
 			IsDir: info.IsDir(),
 		})

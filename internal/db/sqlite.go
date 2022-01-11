@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrEmptyResponse = errors.New("got empty response from db")
+	ErrUnauthorized  = errors.New("bad login or password")
 )
 
 type SQLiteDB struct {
@@ -63,7 +64,7 @@ func (db *SQLiteDB) ComparePassword(login, password string) (bool, error) {
 	defer rows.Close()
 
 	if !rows.Next() {
-		return false, ErrEmptyResponse
+		return false, nil
 	}
 
 	var checkResult string
@@ -73,4 +74,27 @@ func (db *SQLiteDB) ComparePassword(login, password string) (bool, error) {
 
 	equal := checkResult == "ok"
 	return equal, nil
+}
+
+func (db *SQLiteDB) GetSharedKey(alicePubKey []byte) (sharedKey []byte, ok bool, err error) {
+	rows, err := db.db.Query(`SELECT shared_key FROM shared_keys WHERE alice_public_key=?`)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, false, nil
+	}
+
+	if err := rows.Scan(&sharedKey); err != nil {
+		return nil, false, err
+	}
+
+	return sharedKey, true, nil
+}
+
+func (db *SQLiteDB) SetSharedKey(alicePubKey, sharedKey []byte) error {
+	_, err := db.db.Exec(`INSERT INTO shared_keys (alice_public_key, shared_key) VALUES (?, ?)`, alicePubKey, sharedKey)
+	return err
 }
