@@ -30,6 +30,8 @@ type NasClient struct {
 }
 
 func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, error) {
+	logger := logrus.WithField("logging-entity", "dialer")
+
 	// Get a group. Use the default one would be enough.
 	g, _ := dhkx.GetGroup(0)
 
@@ -65,6 +67,8 @@ func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, err
 			InsecureSkipVerify: true,
 		},
 	}
+
+	logger.Infof("key generating with host %s", cfg.ServerAddr)
 
 	// Send the public key to Bob.
 	req := newRequest(http.MethodGet, cfg.ServerAddr, "/generate_shared_key", nil)
@@ -330,7 +334,7 @@ func newRequest(method, serverAddr, path string, body io.ReadCloser) *http.Reque
 	return &http.Request{
 		Method: method,
 		URL: &url.URL{
-			Scheme: "https",
+			Scheme: "http",
 			Host:   serverAddr,
 			Path:   path,
 		},

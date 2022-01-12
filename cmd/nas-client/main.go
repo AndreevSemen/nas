@@ -30,6 +30,7 @@ func main() {
 		logger.Fatalf("parse config: %s", err)
 	}
 
+	logger.Infof("creating client...")
 	cli, err := client.NewClient(cfg, cfg.Login, cfg.Password)
 	if err != nil {
 		logger.Fatalf("create client: %s", err)

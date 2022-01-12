@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/gorilla/schema"
-	"github.com/monnand/dhkx"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/AndreevSemen/nas/internal/db"
 	"github.com/AndreevSemen/nas/internal/storage"
 	"github.com/AndreevSemen/nas/internal/structures"
-	"github.com/AndreevSemen/nas/internal/utilities"
 )
 
 var (
@@ -26,9 +24,10 @@ var (
 	ErrBadVirtualPath         = errors.New("bad virtual path")
 	ErrVirtualStorageNotFound = errors.New("virtual storage not found")
 
-	ErrNoPublicKey    = errors.New("no public key")
-	ErrBadMethod      = errors.New("bad HTTP method")
-	ErrBadQueryParams = errors.New("bad query params")
+	ErrNoPublicKey        = errors.New("no public key")
+	ErrBadPublicKeyFormat = errors.New("bad public key format")
+	ErrBadMethod          = errors.New("bad HTTP method")
+	ErrBadQueryParams     = errors.New("bad query params")
 )
 
 type FileServer struct {
@@ -59,79 +58,23 @@ func NewSFileServer(cfg config.Config) (*FileServer, error) {
 }
 
 func (fs *FileServer) Start(cfg config.Config, lis net.Listener) {
-	mux := http.NewServeMux()
-	mux.Handle("/generate_shared_key", http.HandlerFunc(fs.generateSharedKEy))
+	cypherMux := http.NewServeMux()
 	// mux.Handle("/sign_up", http.HandlerFunc(fs.handleSignUp))
-	mux.Handle("/sign_in", http.HandlerFunc(fs.handleSignIn))
-	mux.Handle("/", fs.middlewareAuthz(http.HandlerFunc(fs.handleFilesystem)))
+	cypherMux.Handle("/sign_in", http.HandlerFunc(fs.handleSignIn))
+	cypherMux.Handle("/", fs.middlewareAuthz(http.HandlerFunc(fs.handleFilesystem)))
 
-	fs.server.Handler = commonMiddleware(mux)
+	plainMux := http.NewServeMux()
+	plainMux.Handle("/generate_shared_key", http.HandlerFunc(fs.generateSharedKey))
+	plainMux.Handle("/", fs.middlewareCypher(cypherMux))
 
-	logrus.Info("starting file server...")
-	if err := fs.server.ServeTLS(lis, cfg.Server.CertPath, cfg.Server.KeyPath); err == http.ErrServerClosed {
+	fs.server.Handler = commonMiddleware(plainMux)
+
+	logrus.Info("file server started.")
+	if err := fs.server.Serve(lis); err == http.ErrServerClosed {
 		logrus.Info("file server successfully stopped.")
 	} else {
 		logrus.Errorf("file server stopped: %s", err)
 	}
-}
-
-func (fs *FileServer) generateSharedKEy(w http.ResponseWriter, r *http.Request) {
-	// Get a group. Use the default one would be enough.
-	g, _ := dhkx.GetGroup(0)
-
-	// Generate a private key from the group.
-	// Use the default random number generator.
-	priv, err := g.GeneratePrivateKey(nil)
-	if err != nil {
-		logrus.WithField("logging-entity", "auth/generate_shared_key").Error(err.Error())
-		responseWithError(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Get the public key from the private key.
-	pub := priv.Bytes()
-
-	// Receive a slice of bytes from Alice, which contains Alice's public key
-	alicePubKeyBase64 := r.Header.Get("Public-Key")
-	if alicePubKeyBase64 == "" {
-		responseWithError(w, ErrNoPublicKey, http.StatusBadRequest)
-		return
-	}
-
-	alicePubKeyBytes, err := utilities.DecodeBase64(alicePubKeyBase64)
-	if err != nil {
-		logrus.WithField("logging-entity", "auth/generate_shared_key").Error(err.Error())
-		responseWithError(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Recover Alice's public key
-	alicePubKey := dhkx.NewPublicKey(alicePubKeyBytes)
-
-	// Compute the key
-	k, err := g.ComputeKey(alicePubKey, priv)
-	if err != nil {
-		logrus.WithField("logging-entity", "auth/generate_shared_key").Error(err.Error())
-		responseWithError(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	sharedKey := k.Bytes()
-	if err := fs.db.SetSharedKey(alicePubKeyBytes, sharedKey); err != nil {
-		logrus.WithField("logging-entity", "auth/generate_shared_key").Error(err.Error())
-		responseWithError(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Send the public key to Alice.
-	pubKeyBase64, err := utilities.EncodeBase64(pub)
-	if err != nil {
-		logrus.WithField("logging-entity", "auth/generate_shared_key").Error(err.Error())
-		responseWithError(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Public-Key", pubKeyBase64)
 }
 
 // func (fs *FileServer) handleSignUp(w http.ResponseWriter, r *http.Request) {
