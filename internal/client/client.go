@@ -236,7 +236,7 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 
 		if path != sourcePath {
 			items = append(items, structures.ListItem{
-				Path:  strings.TrimLeft(path, sourcePath),
+				Path:  strings.TrimPrefix(path, sourcePath),
 				IsDir: info.IsDir(),
 			})
 		}
@@ -269,6 +269,7 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 			err = errors.Wrap(err, "sync file")
 			return err
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, err := ioutil.ReadAll(resp.Body)
@@ -278,7 +279,7 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 			}
 
 			err = errors.New(string(body))
-			err = errors.Wrap(err, "download file")
+			err = errors.Wrap(err, "sync file")
 			return err
 		}
 
