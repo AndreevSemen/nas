@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/AndreevSemen/nas/internal/config"
+	"github.com/AndreevSemen/nas/internal/cypher"
 	"github.com/AndreevSemen/nas/internal/structures"
 	"github.com/AndreevSemen/nas/internal/utilities"
 	"github.com/monnand/dhkx"
@@ -71,7 +72,11 @@ func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, err
 	logger.Infof("key generating with host %s", cfg.ServerAddr)
 
 	// Send the public key to Bob.
-	req := newRequest(http.MethodGet, cfg.ServerAddr, "/generate_shared_key", nil)
+	req, err := newRequest(http.MethodGet, cfg.ServerAddr, "/generate_shared_key", nil, nil)
+	if err != nil {
+		err = errors.Wrap(err, "make request")
+		return nil, err
+	}
 	req.Header.Set("Public-Key", pubBase64)
 
 	resp, err := client.Do(req)
@@ -101,6 +106,13 @@ func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, err
 	// Get the key in the form of []byte
 	sharedKey := k.Bytes()
 
+	nc := &NasClient{
+		cfg:       cfg,
+		client:    client,
+		pubBase64: pubBase64,
+		sharedKey: sharedKey,
+	}
+
 	creds := structures.Credentials{
 		Login:    login,
 		Password: password,
@@ -112,10 +124,14 @@ func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, err
 		return nil, err
 	}
 
-	req = newRequest(http.MethodGet, cfg.ServerAddr, "/sign_in", ioutil.NopCloser(bytes.NewBuffer(body)))
+	req, err = newRequest(http.MethodGet, cfg.ServerAddr, "/sign_in", ioutil.NopCloser(bytes.NewBuffer(body)), sharedKey)
+	if err != nil {
+		err = errors.Wrap(err, "make request")
+		return nil, err
+	}
 	req.Header.Set("Public-Key", pubBase64)
 
-	resp, err = client.Do(req)
+	resp, err = nc.doRequest(req)
 	if err != nil {
 		err = errors.Wrap(err, "do sign in")
 		return nil, err
@@ -137,14 +153,7 @@ func NewClient(cfg config.ClientConfig, login, password string) (*NasClient, err
 		err = errors.New("got no token from server")
 		return nil, err
 	}
-
-	nc := &NasClient{
-		cfg:       cfg,
-		client:    client,
-		pubBase64: pubBase64,
-		sharedKey: sharedKey,
-		token:     token,
-	}
+	nc.token = token
 
 	return nc, nil
 }
@@ -170,11 +179,15 @@ func (nc *NasClient) DownloadStorage(sourcePath, destinationPath string) error {
 				return err
 			}
 		} else {
-			req := newRequest(http.MethodGet, nc.cfg.ServerAddr, item.Path, nil)
+			req, err := newRequest(http.MethodGet, nc.cfg.ServerAddr, item.Path, nil, nc.sharedKey)
+			if err != nil {
+				err = errors.Wrap(err, "make request")
+				return err
+			}
 			req.Header.Set("Public-Key", nc.pubBase64)
 			req.Header.Set("Authorization", nc.token)
 
-			resp, err := nc.client.Do(req)
+			resp, err := nc.doRequest(req)
 			if err != nil {
 				err = errors.Wrap(err, "download file")
 				return err
@@ -220,11 +233,15 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 	}
 
 	for _, item := range list {
-		req := newRequest(http.MethodDelete, nc.cfg.ServerAddr, item.Path, nil)
+		req, err := newRequest(http.MethodDelete, nc.cfg.ServerAddr, item.Path, nil, nc.sharedKey)
+		if err != nil {
+			err = errors.Wrap(err, "make request")
+			return err
+		}
 		req.Header.Set("Public-Key", nc.pubBase64)
 		req.Header.Set("Authorization", nc.token)
 
-		resp, err := nc.client.Do(req)
+		resp, err := nc.doRequest(req)
 		if err != nil {
 			err = errors.Wrap(err, "delete files before sync")
 			return err
@@ -252,8 +269,13 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 	}
 
 	for _, item := range items {
-		req := newRequest(http.MethodPut, nc.cfg.ServerAddr, filepath.Join(destinationPath, item.Path), nil)
+		var req *http.Request
 		if item.IsDir {
+			req, err = newRequest(http.MethodPut, nc.cfg.ServerAddr, filepath.Join(destinationPath, item.Path), nil, nc.sharedKey)
+			if err != nil {
+				err = errors.Wrap(err, "make request")
+				return err
+			}
 			q := req.URL.Query()
 			q.Set("is_dir", "true")
 			req.URL.RawQuery = q.Encode()
@@ -263,12 +285,16 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 				err = errors.Wrap(err, "open file before sync")
 				return err
 			}
-			req.Body = f
+			req, err = newRequest(http.MethodPut, nc.cfg.ServerAddr, filepath.Join(destinationPath, item.Path), f, nc.sharedKey)
+			if err != nil {
+				err = errors.Wrap(err, "make request")
+				return err
+			}
 		}
 		req.Header.Set("Public-Key", nc.pubBase64)
 		req.Header.Set("Authorization", nc.token)
 
-		resp, err := nc.client.Do(req)
+		resp, err := nc.doRequest(req)
 		if err != nil {
 			err = errors.Wrap(err, "sync file")
 			return err
@@ -294,7 +320,11 @@ func (nc *NasClient) SyncStorage(sourcePath, destinationPath string) error {
 }
 
 func (nc *NasClient) list(sourcePath string) ([]structures.ListItem, error) {
-	req := newRequest(http.MethodGet, nc.cfg.ServerAddr, sourcePath, nil)
+	req, err := newRequest(http.MethodGet, nc.cfg.ServerAddr, sourcePath, nil, nc.sharedKey)
+	if err != nil {
+		err = errors.Wrap(err, "make request")
+		return nil, err
+	}
 	req.Header.Set("Public-Key", nc.pubBase64)
 	req.Header.Set("Authorization", nc.token)
 
@@ -302,7 +332,7 @@ func (nc *NasClient) list(sourcePath string) ([]structures.ListItem, error) {
 	q.Set("list", "true")
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := nc.client.Do(req)
+	resp, err := nc.doRequest(req)
 	if err != nil {
 		err = errors.Wrap(err, "do list storage files")
 		return nil, err
@@ -330,15 +360,38 @@ func (nc *NasClient) list(sourcePath string) ([]structures.ListItem, error) {
 	return list, nil
 }
 
-func newRequest(method, serverAddr, path string, body io.ReadCloser) *http.Request {
-	return &http.Request{
+func (nc *NasClient) doRequest(req *http.Request) (*http.Response, error) {
+	resp, err := nc.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	decBody, err := cypher.NewDecrypter(resp.Body, nc.sharedKey)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = decBody
+
+	return resp, nil
+}
+
+func newRequest(method, serverAddr, path string, body io.ReadCloser, key []byte) (*http.Request, error) {
+	if key != nil && body != nil {
+		encBody, err := cypher.NewEncrypter(body, key)
+		if err != nil {
+			return nil, err
+		}
+		body = encBody
+	}
+	req := &http.Request{
 		Method: method,
 		URL: &url.URL{
-			Scheme: "http",
+			Scheme: "https",
 			Host:   serverAddr,
 			Path:   path,
 		},
 		Body:   body,
 		Header: http.Header{},
 	}
+	return req, nil
 }
